@@ -1,0 +1,60 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Browser profiles & session data
+data/profiles/
+data/sessions/
+data/cookies/
+data/browser/
+*.session
+*.cookies
+
+# Images (user-provided)
+data/images/**
+!data/images/.gitkeep
+
+# Logs
+data/logs/**
+!data/logs/.gitkeep
+
+# State databases
+*.db
+*.db-journal
+data/*.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Temporary scripts
+sanitize_ai.py
+check_ai.py
+find_lines.py
+scan_secrets.py
+fix_remaining.py
+fix_poster.py
