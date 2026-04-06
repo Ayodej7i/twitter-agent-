@@ -126,7 +126,8 @@ _KNOWN_NON_UNITED_PLAYERS: dict[str, str] = {
     "dembele": "PSG", "hakimi": "PSG", "donnarumma": "PSG", "marquinhos": "PSG",
     # ── Bayern Munich ──
     "kane": "Bayern Munich", "musiala": "Bayern Munich", "kimmich": "Bayern Munich",
-    "muller": "Bayern Munich", "neuer": "Bayern Munich", "sane": "Bayern Munich",
+    "muller": "Bayern Munich", "neuer": "Bayern Munich",
+    "sane": "Bayern Munich", "leroy sane": "Bayern Munich",
     # ── Napoli ──
     "mctominay": "Napoli", "osimhen": "Napoli",
     # ── Aston Villa ──
@@ -397,6 +398,7 @@ _FACTUAL_TRIGGERS = [
     "transfer", "signing", "deal", "loan", "bid", "sold", "bought", "fee",
     "goal", "scored", "hat-trick", "assist", "match", "game", "result",
     "won", "lost", "draw", "beat", "defeat", "score",
+    "performance", "performed", "poor", "bad", "struggled", "rating",
     "injury", "injured", "return", "ban", "suspended", "contract",
     "acl", "anterior cruciate", "mcl", "hamstring", "surgery",
     "breaking", "report", "confirmed", "official", "sources say",
@@ -426,6 +428,72 @@ _CLUB_MAP = {
     "dortmund": "Borussia Dortmund",
     "bayern": "Bayern Munich",
 }
+
+_PLAYER_NAME_NORMALISATIONS = {
+    "sane": "Leroy Sane",
+    "leroy sane": "Leroy Sane",
+}
+
+_PLAYER_PERFORMANCE_MARKERS = [
+    "didn't perform well", "did not perform well", "not perform well",
+    "poor performance", "poor performances", "bad game", "bad match",
+    "struggled", "underperformed", "underperform", "worst game",
+    "worst match", "match rating", "match ratings",
+]
+
+
+def _normalise_player_search_subject(subject: str) -> str:
+    """Convert a raw player mention into a search-friendly subject."""
+    cleaned = re.sub(r"[^a-zA-Z\s\-']", " ", subject.lower()).strip()
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    if not cleaned:
+        return ""
+    if cleaned in _PLAYER_NAME_NORMALISATIONS:
+        return _PLAYER_NAME_NORMALISATIONS[cleaned]
+    return " ".join(part.capitalize() for part in cleaned.split())
+
+
+def _extract_player_search_subject(tweet_text: str) -> str:
+    """Extract a likely player name from a research-style prompt."""
+    t = tweet_text.lower()
+    patterns = [
+        r"(?:games?|matches?)\s+(?:that\s+)?([a-z][a-z\s\-.']{1,50}?)\s+played\b",
+        r"\bhow did\s+([a-z][a-z\s\-.']{1,50}?)\s+play\b",
+        r"\b(?:about|on)\s+([a-z][a-z\s\-.']{1,50}?)\b",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, t)
+        if match:
+            subject = _normalise_player_search_subject(match.group(1))
+            if subject:
+                return subject
+    for alias in sorted(_KNOWN_NON_UNITED_PLAYERS, key=len, reverse=True):
+        if alias in t:
+            subject = _normalise_player_search_subject(alias)
+            if subject:
+                return subject
+    return ""
+
+
+def _lookup_known_club(subject: str) -> str:
+    """Return the known club for a player subject if we have one."""
+    if not subject:
+        return ""
+    lowered = subject.lower()
+    if lowered in _KNOWN_NON_UNITED_PLAYERS:
+        return _KNOWN_NON_UNITED_PLAYERS[lowered]
+    for token in sorted(lowered.split(), key=len, reverse=True):
+        if token in _KNOWN_NON_UNITED_PLAYERS:
+            return _KNOWN_NON_UNITED_PLAYERS[token]
+    return ""
+
+
+def _is_player_performance_request(tweet_text: str) -> bool:
+    """Detect prompts asking for examples of a player's poor performances."""
+    t = tweet_text.lower()
+    if not any(word in t for word in ["game", "games", "match", "matches"]):
+        return False
+    return any(marker in t for marker in _PLAYER_PERFORMANCE_MARKERS)
 
 
 def web_search(query: str, max_results: int = 4) -> str:
@@ -505,6 +573,20 @@ def _build_search_query(tweet_text: str) -> str:
     """Build a focused search query from a tweet."""
     t = tweet_text.lower()
     clubs_found = [name for key, name in _CLUB_MAP.items() if key in t]
+    if _is_player_performance_request(tweet_text):
+        subject = _extract_player_search_subject(tweet_text)
+        subject_club = _lookup_known_club(subject)
+        query_parts = []
+        if subject:
+            query_parts.append(subject)
+        if subject_club and subject_club.lower() not in " ".join(query_parts).lower():
+            query_parts.append(subject_club)
+        elif clubs_found:
+            query_parts.append(clubs_found[0])
+        query_parts.extend(["poor performances", "match ratings", "2025", "2026"])
+        query = " ".join(part for part in query_parts if part).strip()
+        if query:
+            return query
     # Use 'current manager' instead of 'coach' for cleaner results
     manager_kw = "current manager" if any(w in t for w in ["manager", "coach", "sacked", "hired", "appointed"]) else ""
     actions = ["current manager" if manager_kw else w
@@ -835,6 +917,12 @@ def generate_ai_reply(
         perf_hint = _get_performance_prompt_hint()
         if perf_hint:
             prompt += f"\n\n{perf_hint}"
+        if _is_player_performance_request(tweet_text):
+            prompt += (
+                "\n\nRESEARCH TASK: If they are asking for games where a player performed poorly, "
+                "answer directly with only the specific matches you can support from the LIVE WEB FACTS. "
+                "If the web facts are too thin, say you can't verify exact games rather than guessing."
+            )
 
     # Thread awareness — inject parent tweet context for thread replies
     if parent_tweet:
