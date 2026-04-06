@@ -484,7 +484,7 @@ def _is_player_performance_request(tweet_text: str) -> bool:
 
 
 def _find_clubs_in_text(tweet_text: str) -> list[str]:
-    """Find club keywords without matching unrelated substrings like 'internet'."""
+    """Find club keywords with word-boundary matching to avoid false positives like 'inter' in 'internet'."""
     t = tweet_text.lower()
     found = []
     for key, club in _CLUB_MAP.items():
