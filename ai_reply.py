@@ -475,25 +475,22 @@ def _extract_player_search_subject(tweet_text: str) -> str:
     return ""
 
 
-def _lookup_known_club(subject: str) -> str:
-    """Return the known club for a player subject if we have one."""
-    if not subject:
-        return ""
-    lowered = subject.lower()
-    if lowered in _KNOWN_NON_UNITED_PLAYERS:
-        return _KNOWN_NON_UNITED_PLAYERS[lowered]
-    for token in sorted(lowered.split(), key=len, reverse=True):
-        if token in _KNOWN_NON_UNITED_PLAYERS:
-            return _KNOWN_NON_UNITED_PLAYERS[token]
-    return ""
-
-
 def _is_player_performance_request(tweet_text: str) -> bool:
     """Detect prompts asking for examples of a player's poor performances."""
     t = tweet_text.lower()
     if not any(word in t for word in ["game", "games", "match", "matches"]):
         return False
     return any(marker in t for marker in _PLAYER_PERFORMANCE_MARKERS)
+
+
+def _find_clubs_in_text(tweet_text: str) -> list[str]:
+    """Find club keywords without matching unrelated substrings like 'internet'."""
+    t = tweet_text.lower()
+    found = []
+    for key, club in _CLUB_MAP.items():
+        if re.search(rf"\b{re.escape(key)}\b", t):
+            found.append(club)
+    return found
 
 
 def web_search(query: str, max_results: int = 4) -> str:
@@ -572,16 +569,13 @@ def _is_united_topic(tweet_text: str, parent_tweet: str = "", quoted_tweet: str 
 def _build_search_query(tweet_text: str) -> str:
     """Build a focused search query from a tweet."""
     t = tweet_text.lower()
-    clubs_found = [name for key, name in _CLUB_MAP.items() if key in t]
+    clubs_found = _find_clubs_in_text(tweet_text)
     if _is_player_performance_request(tweet_text):
         subject = _extract_player_search_subject(tweet_text)
-        subject_club = _lookup_known_club(subject)
         query_parts = []
         if subject:
             query_parts.append(subject)
-        if subject_club and subject_club.lower() not in " ".join(query_parts).lower():
-            query_parts.append(subject_club)
-        elif clubs_found:
+        if clubs_found:
             query_parts.append(clubs_found[0])
         query_parts.extend(["poor performances", "match ratings", "2025", "2026"])
         query = " ".join(part for part in query_parts if part).strip()
